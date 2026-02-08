@@ -1,0 +1,21 @@
+{
+  "name": "langchain_docs",
+  "module": "index.ts",
+  "type": "module",
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "@langchain/community": "^1.1.12",
+    "@langchain/core": "^1.1.19",
+    "@langchain/openai": "^1.2.5",
+    "@langchain/textsplitters": "^1.0.1",
+    "@supabase/supabase-js": "^2.95.3",
+    "elysia": "^1.4.22",
+    "install": "^0.13.0",
+    "langchain": "^1.2.18"
+  }
+}
