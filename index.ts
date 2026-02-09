@@ -6,7 +6,13 @@ import { Elysia, t } from "elysia";
 import { ChatOpenAI } from "@langchain/openai";
 import { PromptTemplate } from "@langchain/core/prompts";
 import { StringOutputParser } from "@langchain/core/output_parsers";
-import { RunnablePassthrough } from "@langchain/core/runnables";
+import {
+  RunnablePassthrough,
+  RunnableSequence,
+} from "@langchain/core/runnables";
+import { retriever } from "./utils/retriever";
+import type { Document } from "langchain";
+import { combineDocuments } from "./utils/misc";
 
 const supabaseUrl = process.env.SUPABASE_URL!;
 const supabaseKey = process.env.SUPABASE_KEY!;
@@ -37,15 +43,6 @@ async function syncDocuments() {
 }
 
 async function handlePrompt(userInput: string) {
-  const embeddings = new OpenAIEmbeddings({ model: "text-embedding-3-small" });
-  const client = createClient(supabaseUrl, supabaseKey);
-  const vectorStore = new SupabaseVectorStore(embeddings, {
-    client,
-    tableName: "documents",
-    queryName: "match_documents",
-  });
-  const retriever = vectorStore.asRetriever();
-
   const llm = new ChatOpenAI({
     openAIApiKey,
     model: "gpt-5-nano",
@@ -54,17 +51,38 @@ async function handlePrompt(userInput: string) {
   const standaloneQuestionPrompt = PromptTemplate.fromTemplate(
     standaloneQuestionTemplate,
   );
-  const chain = standaloneQuestionPrompt
+  const answerTemplate = `
+You are a helpful and enthusiastic support bot who can answer a given question about professional experience on the context provided. Try to find the answer in the context. If you really don't know the answer, say "I', sorry, I don't know the answer to that" and direct the questioner to email me@aaliyev.com. Don't try to make up an answer. Always speak as if you were chatting to a friend.
+context: {context}
+question: {question}
+answer:
+`.trim();
+
+  const answerPrompt = PromptTemplate.fromTemplate(answerTemplate);
+
+  const standaloneChain = standaloneQuestionPrompt
     .pipe(llm)
-    .pipe(new StringOutputParser())
-    .pipe(
-      new RunnablePassthrough({
-        func: (input: string) => {
-          console.log("Standalone Question:", input);
-        },
-      }),
-    )
-    .pipe(retriever);
+    .pipe(new StringOutputParser());
+
+  const retrieverChain = RunnableSequence.from([
+    ({ standalone_question }) => standalone_question,
+    retriever,
+    combineDocuments,
+  ]);
+  const answerChain = answerPrompt.pipe(llm).pipe(new StringOutputParser());
+
+  const chain = RunnableSequence.from([
+    {
+      standalone_question: standaloneChain,
+      original_input: new RunnablePassthrough(),
+    },
+    {
+      context: retrieverChain,
+      question: ({ original_input }) => original_input.question,
+    },
+    answerChain,
+  ]);
+
   const response = await chain.invoke({
     question: userInput,
   });
